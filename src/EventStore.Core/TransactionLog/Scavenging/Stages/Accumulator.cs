@@ -77,6 +77,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			var originalStreamRecord = new RecordForAccumulator<TStreamId>.OriginalStreamRecord();
 			var metadataStreamRecord = new RecordForAccumulator<TStreamId>.MetadataStreamRecord();
 			var tombstoneRecord = new RecordForAccumulator<TStreamId>.TombStoneRecord();
+			var redactionRequestRecord = new RecordForAccumulator<TStreamId>.RedactionRequestRecord();
 
 			while (AccumulateChunkAndRecordRange(
 					scavengePoint,
@@ -86,6 +87,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 					originalStreamRecord,
 					metadataStreamRecord,
 					tombstoneRecord,
+					redactionRequestRecord,
 					stopwatch,
 					cancellationToken)) {
 				logicalChunkNumber++;
@@ -100,6 +102,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			RecordForAccumulator<TStreamId>.OriginalStreamRecord originalStreamRecord,
 			RecordForAccumulator<TStreamId>.MetadataStreamRecord metadataStreamRecord,
 			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord,
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord redactionRequestRecord,
 			Stopwatch stopwatch,
 			CancellationToken cancellationToken) {
 
@@ -117,6 +120,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 					originalStreamRecord,
 					metadataStreamRecord,
 					tombStoneRecord,
+					redactionRequestRecord,
 					cancellationToken,
 					out var countAccumulatedRecords,
 					out var chunkMinTimeStamp,
@@ -166,6 +170,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			RecordForAccumulator<TStreamId>.OriginalStreamRecord originalStreamRecord,
 			RecordForAccumulator<TStreamId>.MetadataStreamRecord metadataStreamRecord,
 			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord,
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord redactionRequestRecord,
 			CancellationToken cancellationToken,
 			out int countAccumulatedRecords,
 			out DateTime chunkMinTimeStamp,
@@ -189,7 +194,8 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 				         logicalChunkNumber,
 				         originalStreamRecord,
 				         metadataStreamRecord,
-				         tombStoneRecord)) {
+				         tombStoneRecord,
+				         redactionRequestRecord)) {
 
 				RecordForAccumulator<TStreamId> record;
 				switch (recordType) {
@@ -204,6 +210,10 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 					case AccumulatorRecordType.TombstoneRecord:
 						ProcessTombstone(tombStoneRecord, scavengePoint, state, weights);
 						record = tombStoneRecord;
+						break;
+					case AccumulatorRecordType.RedactionRequestRecord:
+						ProcessRedactionRequest(redactionRequestRecord, scavengePoint, state);
+						record = redactionRequestRecord;
 						break;
 					default:
 						throw new InvalidOperationException($"Unexpected recordType: {recordType}");
@@ -360,6 +370,35 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			foreach (var eventInfo in eventInfos) {
 				var logicalChunkNumber = (int)(eventInfo.LogPosition / _chunkSize);
 				weights.OnDiscard(logicalChunkNumber: logicalChunkNumber);
+			}
+		}
+
+		// For every redaction request
+		//   - check if the stream collides
+		//   - make a note of the redaction request in the state.
+		private void ProcessRedactionRequest(
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord record,
+			ScavengePoint scavengePoint,
+			IScavengeStateForAccumulator<TStreamId> state) {
+
+			state.DetectCollisions(record.StreamId);
+
+			var payload = record.RedactionRequestPayload;
+			if (payload is null) {
+				//qq the payload didn't parse, log an error or something for the user
+			}
+
+			//qq presumably the targetevent number must be less than the request event number
+
+			//qq if there are duplicates, does this get them both
+			var eventInfos = _index.ReadEventInfoForward(
+				handle: state.GetStreamHandle(record.StreamId),
+				fromEventNumber: payload.TargetEventNumber,
+				maxCount: 1,
+				scavengePoint: scavengePoint).EventInfos;
+
+			foreach (var eventInfo in eventInfos) {
+				state.RegisterRedactionRequest(eventInfo.LogPosition);
 			}
 		}
 

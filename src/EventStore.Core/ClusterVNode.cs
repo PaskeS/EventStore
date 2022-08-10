@@ -1246,6 +1246,7 @@ namespace EventStore.Core {
 							Db.Manager,
 							logFormat.Metastreams,
 							logFormat.StreamIdConverter,
+							logFormat.EventTypeIndex.GetExisting(SystemEventTypes.RedactionRequest),
 							Db.Config.ReplicationCheckpoint,
 							TFConsts.ChunkSize),
 						index: new IndexReaderForAccumulator<TStreamId>(readIndex),
@@ -1265,6 +1266,7 @@ namespace EventStore.Core {
 					var chunkExecutor = new ChunkExecutor<TStreamId, ILogRecord>(
 						logFormat.Metastreams,
 						new ChunkManagerForExecutor<TStreamId>(Db.Manager, Db.Config),
+						new Redactor<TStreamId>(logFormat.RecordFactory),
 						chunkSize: Db.Config.ChunkSize,
 						unsafeIgnoreHardDeletes: options.Database.UnsafeIgnoreHardDelete,
 						cancellationCheckPeriod: cancellationCheckPeriod,

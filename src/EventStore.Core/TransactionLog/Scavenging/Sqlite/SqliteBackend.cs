@@ -75,8 +75,8 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 			return false;
 		}
 
-		public IEnumerable<KeyValuePair<TKey, TValue>> ExecuteReader<TKey, TValue>(SqliteCommand cmd,
-			Func<SqliteDataReader, KeyValuePair<TKey, TValue>> toValue) {
+		public IEnumerable<T> ExecuteReader<T>(SqliteCommand cmd,
+			Func<SqliteDataReader, T> toValue) {
 
 			cmd.Transaction = _transaction;
 			using (var reader = cmd.ExecuteReader()) {

@@ -13,35 +13,43 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		private readonly TFChunkManager _manager;
 		private readonly IMetastreamLookup<TStreamId> _metaStreamLookup;
 		private readonly IStreamIdConverter<TStreamId> _streamIdConverter;
+		private readonly TStreamId _redactionRequestEventTypeId;
 		private readonly ICheckpoint _replicationChk;
 		private readonly int _chunkSize;
 
 		private readonly Func<int, byte[]> _getBuffer;
 		private readonly Action _releaseBuffer;
 
+		private static EqualityComparer<TStreamId> StreamIdComparer { get; } =
+			EqualityComparer<TStreamId>.Default;
+
 		public ChunkReaderForAccumulator(
 			TFChunkManager manager,
 			IMetastreamLookup<TStreamId> metastreamLookup,
 			IStreamIdConverter<TStreamId> streamIdConverter,
+			TStreamId redactionRequestEventTypeId,
 			ICheckpoint replicationChk,
 			int chunkSize) {
 
 			_manager = manager;
 			_metaStreamLookup = metastreamLookup;
 			_streamIdConverter = streamIdConverter;
+			_redactionRequestEventTypeId = redactionRequestEventTypeId;
 			_replicationChk = replicationChk;
 			_chunkSize = chunkSize;
 
 			var reusableRecordBuffer = new ReusableBuffer(8192);
 			_getBuffer = size => reusableRecordBuffer.AcquireAsByteArray(size);
 			_releaseBuffer = () => reusableRecordBuffer.Release();
+
 		}
 
 		public IEnumerable<AccumulatorRecordType> ReadChunkInto(
 			int logicalChunkNumber,
 			RecordForAccumulator<TStreamId>.OriginalStreamRecord originalStreamRecord,
 			RecordForAccumulator<TStreamId>.MetadataStreamRecord metadataStreamRecord,
-			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord) {
+			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord,
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord redactionRequestRecord) {
 
 			// the physical chunk might contain several logical chunks, we are only interested in one of them
 			var chunk = _manager.GetChunk(logicalChunkNumber);
@@ -76,6 +84,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 					case LogRecordType.Prepare:
 						var prepareView = new PrepareLogRecordView(result.RecordBuffer, result.RecordLength);
 						var streamId = _streamIdConverter.ToStreamId(prepareView.EventStreamId);
+						var eventTypeId = _streamIdConverter.ToStreamId(prepareView.EventType);
 
 						if (prepareView.Flags.HasAnyOf(PrepareFlags.StreamDelete)) {
 							tombStoneRecord.Reset(
@@ -93,6 +102,16 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 								prepareView.ExpectedVersion + 1,
 								StreamMetadata.TryFromJsonBytes(prepareView.Version, prepareView.Data));
 							yield return AccumulatorRecordType.MetadataStreamRecord;
+
+						} else if (StreamIdComparer.Equals(eventTypeId, _redactionRequestEventTypeId)) {
+							RedactionRequestPayload.TryFromBytes(prepareView.Data, out var payload);
+							redactionRequestRecord.Reset(
+								streamId: streamId,
+								logPosition: prepareView.LogPosition,
+								timeStamp: prepareView.TimeStamp,
+								eventNumber: prepareView.ExpectedVersion + 1,
+								redactionRequest: payload);
+							yield return AccumulatorRecordType.RedactionRequestRecord;
 
 						} else {
 							originalStreamRecord.Reset(

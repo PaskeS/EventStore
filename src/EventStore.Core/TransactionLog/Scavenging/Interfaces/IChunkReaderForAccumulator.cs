@@ -8,6 +8,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			int logicalChunkNumber,
 			RecordForAccumulator<TStreamId>.OriginalStreamRecord originalStreamRecord,
 			RecordForAccumulator<TStreamId>.MetadataStreamRecord metadataStreamRecord,
-			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord);
+			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord,
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord redactionRequestRecord);
 	}
 }

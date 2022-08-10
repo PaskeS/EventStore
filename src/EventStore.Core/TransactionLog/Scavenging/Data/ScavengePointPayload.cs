@@ -2,7 +2,7 @@
 using EventStore.Common.Utils;
 
 namespace EventStore.Core.TransactionLog.Scavenging {
-	// These are stored in the data of the payload record
+	// These are stored in the data of the scavenge point record
 	public class ScavengePointPayload {
 		public int Threshold { get; set; }
 

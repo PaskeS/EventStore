@@ -15,6 +15,7 @@ namespace EventStore.Core.XUnit.Tests.Scavenge {
 			CheckpointStorage = wrapped.CheckpointStorage;
 			ChunkTimeStampRanges = wrapped.ChunkTimeStampRanges;
 			ChunkWeights = wrapped.ChunkWeights;
+			RedactionRequests = wrapped.RedactionRequests;
 			TransactionManager = wrapped.TransactionManager;
 		}
 
@@ -29,6 +30,7 @@ namespace EventStore.Core.XUnit.Tests.Scavenge {
 		public IScavengeMap<Unit, ScavengeCheckpoint> CheckpointStorage { get; set; }
 		public IScavengeMap<int, ChunkTimeStampRange> ChunkTimeStampRanges { get; set; }
 		public IChunkWeightScavengeMap ChunkWeights { get; set; }
+		public IRedactionRequestScavengeMap RedactionRequests { get; set; }
 		public ITransactionManager TransactionManager { get; set; }
 	}
 }

@@ -19,13 +19,15 @@ namespace EventStore.Core.XUnit.Tests.Scavenge {
 			int logicalChunkNumber,
 			RecordForAccumulator<TStreamId>.OriginalStreamRecord originalStreamRecord,
 			RecordForAccumulator<TStreamId>.MetadataStreamRecord metadataStreamRecord,
-			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord) {
+			RecordForAccumulator<TStreamId>.TombStoneRecord tombStoneRecord,
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord redactionRequestRecord) {
 
 			var ret = _wrapped.ReadChunkInto(
 				logicalChunkNumber,
 				originalStreamRecord,
 				metadataStreamRecord,
-				tombStoneRecord);
+				tombStoneRecord,
+				redactionRequestRecord);
 
 			_trace($"Reading Chunk {logicalChunkNumber}");
 			return ret;

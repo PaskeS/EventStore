@@ -121,6 +121,7 @@ namespace EventStore.Core.Services.Storage {
 			_emptyEventTypeId = emptyEventTypeId;
 			EpochManager = epochManager;
 
+			// ok to look these up here because they are hard coded not data driven
 			_scavengePointsStreamId = _streamNameIndex.GetExisting(SystemStreams.ScavengePointsStream);
 			_scavengePointEventTypeId = _eventTypeIndex.GetExisting(SystemEventTypes.ScavengePoint);
 

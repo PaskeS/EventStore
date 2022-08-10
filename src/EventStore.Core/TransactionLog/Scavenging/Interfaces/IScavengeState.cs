@@ -67,6 +67,8 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		void SetChunkTimeStampRange(int logicalChunkNumber, ChunkTimeStampRange range);
 
 		StreamHandle<TStreamId> GetStreamHandle(TStreamId streamId);
+
+		void RegisterRedactionRequest(long targetPosition); //qq and other args i expect
 	}
 
 	public interface IScavengeStateForCalculatorReadOnly<TStreamId> {
@@ -106,6 +108,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		float SumChunkWeights(int startLogicalChunkNumber, int endLogicalChunkNumber);
 		bool TryGetChunkExecutionInfo(TStreamId streamId, out ChunkExecutionInfo info);
 		bool TryGetMetastreamData(TStreamId streamId, out MetastreamData metastreamData);
+		IEnumerable<long> GetRedactionRequests(long startPosition, long endPositionExclusive); //qq end excl?
 	}
 
 	public interface IScavengeStateForChunkMerger : IScavengeStateCommon {
@@ -138,6 +141,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		IScavengeMap<Unit, ScavengeCheckpoint> CheckpointStorage { get; }
 		IScavengeMap<int, ChunkTimeStampRange> ChunkTimeStampRanges { get; }
 		IChunkWeightScavengeMap ChunkWeights { get; }
+		IRedactionRequestScavengeMap RedactionRequests { get; }
 		ITransactionManager TransactionManager { get; }
 	}
 }

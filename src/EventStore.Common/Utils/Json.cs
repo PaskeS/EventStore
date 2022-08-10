@@ -43,8 +43,10 @@ namespace EventStore.Common.Utils {
 			return result;
 		}
 
-		public static T ParseJson<T>(this ReadOnlyMemory<byte> json) {
-			var result = JsonConvert.DeserializeObject<T>(Helper.UTF8NoBom.GetString(json.Span), JsonSettings);
+		public static T ParseJson<T>(this ReadOnlyMemory<byte> json) => json.Span.ParseJson<T>();
+
+		public static T ParseJson<T>(this ReadOnlySpan<byte> json) {
+			var result = JsonConvert.DeserializeObject<T>(Helper.UTF8NoBom.GetString(json), JsonSettings);
 			return result;
 		}
 

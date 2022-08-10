@@ -9,6 +9,7 @@ using EventStore.Core.DataStructures;
 using EventStore.Core.Index;
 using EventStore.Core.Index.Hashes;
 using EventStore.Core.LogAbstraction;
+using EventStore.Core.Services;
 using EventStore.Core.Services.Storage.ReaderIndex;
 using EventStore.Core.Settings;
 using EventStore.Core.Tests;
@@ -300,6 +301,7 @@ namespace EventStore.Core.XUnit.Tests.Scavenge {
 					dbResult.Db.Manager,
 					metastreamLookup,
 					logFormat.StreamIdConverter,
+					logFormat.EventTypeIndex.GetExisting(SystemEventTypes.RedactionRequest),
 					dbResult.Db.Config.ReplicationCheckpoint,
 					dbConfig.ChunkSize);
 
@@ -382,6 +384,7 @@ namespace EventStore.Core.XUnit.Tests.Scavenge {
 							dbResult.Db.Manager,
 							dbConfig),
 						Tracer),
+					redactor: new Redactor<TStreamId>(logFormat.RecordFactory),
 					chunkSize: dbConfig.ChunkSize,
 					unsafeIgnoreHardDeletes: _unsafeIgnoreHardDeletes,
 					cancellationCheckPeriod: cancellationCheckPeriod,

@@ -2,10 +2,14 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
+using EventStore.Core.DataStructures.ProbabilisticFilter;
 using EventStore.Core.Exceptions;
+using EventStore.Core.Helpers;
 using EventStore.Core.LogAbstraction;
 using EventStore.Core.TransactionLog.Chunks;
+using EventStore.Core.TransactionLog.LogRecords;
 using Serilog;
 
 namespace EventStore.Core.TransactionLog.Scavenging {
@@ -17,6 +21,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 		private readonly IMetastreamLookup<TStreamId> _metastreamLookup;
 		private readonly IChunkManagerForChunkExecutor<TStreamId, TRecord> _chunkManager;
+		private readonly IRedactor<TStreamId, TRecord> _redactor;
 		private readonly long _chunkSize;
 		private readonly bool _unsafeIgnoreHardDeletes;
 		private readonly int _cancellationCheckPeriod;
@@ -26,6 +31,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		public ChunkExecutor(
 			IMetastreamLookup<TStreamId> metastreamLookup,
 			IChunkManagerForChunkExecutor<TStreamId, TRecord> chunkManager,
+			IRedactor<TStreamId, TRecord> redactor,
 			long chunkSize,
 			bool unsafeIgnoreHardDeletes,
 			int cancellationCheckPeriod,
@@ -34,6 +40,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 			_metastreamLookup = metastreamLookup;
 			_chunkManager = chunkManager;
+			_redactor = redactor;
 			_chunkSize = chunkSize;
 			_unsafeIgnoreHardDeletes = unsafeIgnoreHardDeletes;
 			_cancellationCheckPeriod = cancellationCheckPeriod;
@@ -96,16 +103,31 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 						// the physical chunks do not overlap in chunk range, so we can sum
 						// and reset them concurrently
 						var physicalWeight = concurrentState.SumChunkWeights(
-								physicalChunk.ChunkStartNumber,
-								physicalChunk.ChunkEndNumber);
+							physicalChunk.ChunkStartNumber,
+							physicalChunk.ChunkEndNumber);
 
-						if (physicalWeight > scavengePoint.Threshold || _unsafeIgnoreHardDeletes) {
+						//qq only need to get the redactionRequests and consider them if it is a redaction-enabled scavenge.
+						//qq make sure everything we do with redactionRequests is ok with the concurrency.
+						using var redactionRequests = concurrentState
+							.GetRedactionRequests(
+								startPosition: physicalChunk.ChunkStartPosition,
+								endPositionExclusive: physicalChunk.ChunkEndPosition)
+							.GetEnumerator();
+						var gotRedactionsToProcess = redactionRequests.MoveNext();
+
+						var executeChunk =
+							physicalWeight > scavengePoint.Threshold ||
+							_unsafeIgnoreHardDeletes ||
+							gotRedactionsToProcess;
+
+						if (executeChunk) {
 							ExecutePhysicalChunk(
 								physicalWeight,
 								scavengePoint,
 								concurrentState,
 								scavengerLogger,
 								physicalChunk,
+								gotRedactionsToProcess ? redactionRequests : null,
 								sw,
 								cancellationToken);
 
@@ -175,6 +197,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			IScavengeStateForChunkExecutorWorker<TStreamId> state,
 			ITFChunkScavengerLog scavengerLogger,
 			IChunkReaderForExecutor<TStreamId, TRecord> sourceChunk,
+			IEnumerator<long> redactionRequests,
 			Stopwatch sw,
 			CancellationToken cancellationToken) {
 
@@ -212,6 +235,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 				var cancellationCheckCounter = 0;
 				var discardedCount = 0;
 				var keptCount = 0;
+				var redactedCount = 0;
 
 				// nonPrepareRecord and prepareRecord ae reused through the iteration
 				var nonPrepareRecord = new RecordForExecutor<TStreamId, TRecord>.NonPrepare();
@@ -222,10 +246,20 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 						if (ShouldDiscard(state, scavengePoint, prepareRecord)) {
 							discardedCount++;
 						} else {
-							keptCount++;
+							// keep or redact
+
+							//qq redactionRequests
+							var isTargetedForRedaction = true; //qqqq
+							if (isTargetedForRedaction && _redactor.TryRedact(prepareRecord)) {
+								redactedCount++;
+							} else {
+								keptCount++;
+							}
+							//qq do we avoid writing a posmap if we dont need one
 							outputChunk.WriteRecord(prepareRecord);
 						}
 					} else {
+						//qqq is it possible that we targetted this for redaction? probably not because only prepares are indexed
 						keptCount++;
 						outputChunk.WriteRecord(nonPrepareRecord);
 					}
@@ -238,9 +272,9 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 				Log.Debug(
 					"SCAVENGING: Scavenging {oldChunkName} traversed {recordsCount:N0}. " +
-					" Kept {keptCount:N0}. Discarded {discardedCount:N0}",
-					oldChunkName, discardedCount + keptCount,
-					keptCount, discardedCount);
+					" Kept {keptCount:N0}. Discarded {discardedCount:N0}. Redacted {redactedCount:N0}",
+					oldChunkName, discardedCount + keptCount + redactedCount,
+					keptCount, discardedCount, redactedCount);
 
 				outputChunk.Complete(out var newFileName, out var newFileSize);
 
@@ -393,6 +427,78 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 						maxAge: null);
 				}
 			}
+		}
+	}
+
+	public interface IRedactor<TStreamId, TRecord> {
+		bool TryRedact(RecordForExecutor<TStreamId, TRecord>.Prepare target);
+	}
+
+	//qq we can see if v2/v3 turn out to be different apart from the factories.
+	public class Redactor<TStreamId> : IRedactor<TStreamId, ILogRecord> {
+		private readonly IRecordFactory<TStreamId> _recordFactory;
+		private byte[] _ones;
+
+		public Redactor(IRecordFactory<TStreamId> recordFactory) {
+			_recordFactory = recordFactory;
+			CreatesOnes(256 * 1024);
+		}
+
+		private void CreatesOnes(long length) {
+			// we will create a buffer filled with 1s that is at least as long as length.
+			// round up the length to the nearest 8 bytes so we can fill it easily.
+			var adjustedLength = length.RoundUpToMultipleOf(sizeof(ulong));
+			_ones = new byte[adjustedLength];
+			var ulongs = MemoryMarshal.Cast<byte, ulong>(_ones.AsSpan());
+			for (var i = 0; i < ulongs.Length; i++) {
+				ulongs[i] = ulong.MaxValue;
+			}
+		}
+
+		private ReadOnlyMemory<byte> GetOnes(int length) {
+			if (_ones.Length < length)
+				CreatesOnes(length);
+			return _ones.AsMemory()[..length];
+		}
+
+		public bool TryRedact(RecordForExecutor<TStreamId, ILogRecord>.Prepare target) {
+			//qqqq check if it is redactable. more of these. log when it isn't.
+			if (target.Record is not IPrepareLogRecord<TStreamId> targetPrepare) {
+				return false;
+			}
+
+			if (!targetPrepare.Flags.HasAnyOf(PrepareFlags.Data)) {
+				return false;
+			}
+
+			var redactedData = GetOnes(targetPrepare.Data.Length);
+
+			var redactedRecord = _recordFactory.CreatePrepare(
+				logPosition: targetPrepare.LogPosition,
+				correlationId: targetPrepare.CorrelationId,
+				eventId: targetPrepare.EventId,
+				transactionPosition: targetPrepare.TransactionPosition,
+				transactionOffset: targetPrepare.TransactionOffset,
+				eventStreamId: targetPrepare.EventStreamId,
+				expectedVersion: targetPrepare.ExpectedVersion,
+				timeStamp: targetPrepare.TimeStamp,
+				flags: targetPrepare.Flags | PrepareFlags.IsReadacted, //qq remove IsJson?
+				eventType: targetPrepare.EventType,
+				data: redactedData,
+				metadata: targetPrepare.Metadata);
+
+			target.SetRecord(
+				length: target.Length,
+				logPosition: target.LogPosition,
+				record: redactedRecord,
+				timeStamp: target.TimeStamp,
+				streamId: target.StreamId,
+				isSelfCommitted: target.IsSelfCommitted,
+				isTombstone: target.IsTombstone,
+				isTransactionBegin: target.IsTransactionBegin,
+				eventNumber: target.EventNumber);
+
+			return true;
 		}
 	}
 }

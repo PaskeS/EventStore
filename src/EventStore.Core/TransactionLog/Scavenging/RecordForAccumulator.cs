@@ -6,6 +6,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		OriginalStreamRecord,
 		MetadataStreamRecord,
 		TombstoneRecord,
+		RedactionRequestRecord,
 	}
 
 	public abstract class RecordForAccumulator<TStreamId> {
@@ -58,6 +59,23 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			// tombstones that have arbitrary event numbers, so let's handle them here
 			// in case it used to be possible to create them.
 			public long EventNumber { get; private set; }
+		}
+
+		public class RedactionRequestRecord : RecordForAccumulator<TStreamId> {
+			public void Reset(
+				TStreamId streamId,
+				long logPosition,
+				DateTime timeStamp,
+				long eventNumber,
+				RedactionRequestPayload redactionRequest) {
+
+				Reset(streamId, logPosition, timeStamp);
+				EventNumber = eventNumber;
+				RedactionRequestPayload = redactionRequest;
+			}
+
+			public long EventNumber { get; private set; } //qq need?
+			public RedactionRequestPayload RedactionRequestPayload { get; private set; }
 		}
 	}
 }

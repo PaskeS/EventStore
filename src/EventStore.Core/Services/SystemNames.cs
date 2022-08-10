@@ -86,6 +86,7 @@ namespace EventStore.Core.Services {
 		public const string EmptyEventType = "";
 		public const string EventTypeDefined = "$event-type";
 		public const string ScavengePoint = "$scavengePoint";
+		public const string RedactionRequest = "$redactionRequest";
 
 		public static string StreamReferenceEventToStreamId(string eventType, ReadOnlyMemory<byte> data) {
 			string streamId = null;

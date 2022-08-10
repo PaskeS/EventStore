@@ -33,6 +33,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 		private readonly IScavengeMap<int, ChunkTimeStampRange> _chunkTimeStampRanges;
 		private readonly IChunkWeightScavengeMap _chunkWeights;
+		private readonly IRedactionRequestScavengeMap _redactionRequests;
 		private readonly IScavengeMap<Unit, ScavengeCheckpoint> _checkpointStorage;
 		private readonly ITransactionManager _transactionManager;
 
@@ -74,6 +75,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 			_chunkTimeStampRanges = _backend.ChunkTimeStampRanges;
 			_chunkWeights = _backend.ChunkWeights;
+			_redactionRequests = _backend.RedactionRequests;
 
 			_transactionManager = _backend.TransactionManager;
 			_transactionManager.RegisterOnRollback(OnRollback);
@@ -162,6 +164,10 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			_collisionDetector.IsCollision(streamId) ?
 				StreamHandle.ForStreamId(streamId) :
 				StreamHandle.ForHash<TStreamId>(_hasher.Hash(streamId));
+
+		public void RegisterRedactionRequest(long targetPosition) {
+			_redactionRequests.RegisterRedactionRequest(targetPosition);
+		}
 
 		//
 		// FOR CALCULATOR
@@ -312,6 +318,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		private readonly MetastreamCollisionMap<TStreamId> _metastreamDatas;
 		private readonly OriginalStreamCollisionMap<TStreamId> _originalStreamDatas;
 		private readonly IChunkWeightScavengeMap _chunkWeights;
+		private readonly IRedactionRequestScavengeMap _redactionRequests;
 		private readonly Action _onDispose;
 
 		public ScavengeStateForChunkWorker(
@@ -334,6 +341,8 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 			_chunkWeights = backend.ChunkWeights;
 
+			_redactionRequests = backend.RedactionRequests;
+
 			_onDispose = onDispose;
 		}
 
@@ -349,6 +358,10 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 		public bool TryGetMetastreamData(TStreamId streamId, out MetastreamData data) =>
 			_metastreamDatas.TryGetValue(streamId, out data);
+
+		public IEnumerable<long> GetRedactionRequests(long startPosition, long endPositionExclusive) {
+			throw new NotImplementedException();
+		}
 
 		public void Dispose() {
 			_onDispose();

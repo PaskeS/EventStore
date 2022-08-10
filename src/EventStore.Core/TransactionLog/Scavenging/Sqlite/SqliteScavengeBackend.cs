@@ -34,6 +34,7 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 		public IScavengeMap<Unit,ScavengeCheckpoint> CheckpointStorage { get; private set; }
 		public IScavengeMap<int,ChunkTimeStampRange> ChunkTimeStampRanges { get; private set; }
 		public IChunkWeightScavengeMap ChunkWeights { get; private set; }
+		public IRedactionRequestScavengeMap RedactionRequests { get; private set; }
 		public ITransactionFactory<SqliteTransaction> TransactionFactory { get; private set; }
 		public ITransactionManager TransactionManager { get; private set; }
 
@@ -79,6 +80,9 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 			var chunkWeights = new SqliteChunkWeightScavengeMap();
 			ChunkWeights = chunkWeights;
 
+			var redactions = new SqliteRedactionRequestScavengeMap();
+			RedactionRequests = redactions;
+
 			var transactionFactory = new SqliteTransactionFactory();
 			TransactionFactory = transactionFactory;
 
@@ -86,7 +90,7 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 
 			var allMaps = new IInitializeSqliteBackend[] { collisionStorage, hashes, metaStorage, metaCollisionStorage,
 				originalStorage, originalCollisionStorage, checkpointStorage, chunkTimeStampRanges, chunkWeights,
-				transactionFactory};
+				redactions, transactionFactory};
 
 			foreach (var map in allMaps) {
 				map.Initialize(_sqliteBackend);
