@@ -6,13 +6,28 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using EventStore.Core.DataStructures.ProbabilisticFilter;
 using EventStore.Core.Exceptions;
-using EventStore.Core.Helpers;
 using EventStore.Core.LogAbstraction;
 using EventStore.Core.TransactionLog.Chunks;
 using EventStore.Core.TransactionLog.LogRecords;
 using Serilog;
 
 namespace EventStore.Core.TransactionLog.Scavenging {
+	//qq name, location
+	public sealed class RedactionHelper : IDisposable {
+		private readonly IEnumerator<long> _targetEnumeration;
+
+		public RedactionHelper(IEnumerable<long> redactionTargets) {
+			_targetEnumeration = redactionTargets.GetEnumerator();
+			GotCurrent = _targetEnumeration.MoveNext();
+		}
+
+		public bool GotCurrent { get; private set; }
+
+		public void Dispose() {
+			_targetEnumeration?.Dispose();
+		}
+	}
+
 	public class ChunkExecutor {
 		protected static readonly ILogger Log = Serilog.Log.ForContext<ChunkExecutor>();
 	}
@@ -106,19 +121,17 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 							physicalChunk.ChunkStartNumber,
 							physicalChunk.ChunkEndNumber);
 
-						//qq only need to get the redactionRequests and consider them if it is a redaction-enabled scavenge.
+						//qqq only need to get the redactionRequests and consider them if it is a redaction-enabled scavenge.
 						//qq make sure everything we do with redactionRequests is ok with the concurrency.
-						using var redactionRequests = concurrentState
-							.GetRedactionRequests(
+						using var redactionTargets = new RedactionHelper(
+							concurrentState.GetRedactionTargets(
 								startPosition: physicalChunk.ChunkStartPosition,
-								endPositionExclusive: physicalChunk.ChunkEndPosition)
-							.GetEnumerator();
-						var gotRedactionsToProcess = redactionRequests.MoveNext();
+								endPositionExclusive: physicalChunk.ChunkEndPosition));
 
 						var executeChunk =
 							physicalWeight > scavengePoint.Threshold ||
 							_unsafeIgnoreHardDeletes ||
-							gotRedactionsToProcess;
+							redactionTargets.GotCurrent;
 
 						if (executeChunk) {
 							ExecutePhysicalChunk(
@@ -127,7 +140,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 								concurrentState,
 								scavengerLogger,
 								physicalChunk,
-								gotRedactionsToProcess ? redactionRequests : null,
+								redactionTargets,
 								sw,
 								cancellationToken);
 
@@ -197,7 +210,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			IScavengeStateForChunkExecutorWorker<TStreamId> state,
 			ITFChunkScavengerLog scavengerLogger,
 			IChunkReaderForExecutor<TStreamId, TRecord> sourceChunk,
-			IEnumerator<long> redactionRequests,
+			RedactionHelper redactionTargets,
 			Stopwatch sw,
 			CancellationToken cancellationToken) {
 
@@ -244,17 +257,17 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 				foreach (var isPrepare in sourceChunk.ReadInto(nonPrepareRecord, prepareRecord)) {
 					if (isPrepare) {
 						if (ShouldDiscard(state, scavengePoint, prepareRecord)) {
+							// discard
 							discardedCount++;
 						} else {
-							// keep or redact
+							// keep (maybe redacted)
 
-							//qq redactionRequests
-							var isTargetedForRedaction = true; //qqqq
-							if (isTargetedForRedaction && _redactor.TryRedact(prepareRecord)) {
+							if (_redactor.TryRedact(redactionTargets, prepareRecord)) {
 								redactedCount++;
 							} else {
 								keptCount++;
 							}
+
 							//qq do we avoid writing a posmap if we dont need one
 							outputChunk.WriteRecord(prepareRecord);
 						}
@@ -431,7 +444,9 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 	}
 
 	public interface IRedactor<TStreamId, TRecord> {
-		bool TryRedact(RecordForExecutor<TStreamId, TRecord>.Prepare target);
+		bool TryRedact(
+			RedactionHelper redactionTargets,
+			RecordForExecutor<TStreamId, TRecord>.Prepare target);
 	}
 
 	//qq we can see if v2/v3 turn out to be different apart from the factories.
@@ -461,7 +476,16 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			return _ones.AsMemory()[..length];
 		}
 
-		public bool TryRedact(RecordForExecutor<TStreamId, ILogRecord>.Prepare target) {
+		//qqq rename now that this also deals with checking whether redaction is even necessary.
+		public bool TryRedact(
+			RedactionHelper redactionTargets,
+			RecordForExecutor<TStreamId, ILogRecord>.Prepare target) {
+
+			var isTargetedForRedaction = false;
+
+			if (!isTargetedForRedaction)
+				return false;
+
 			//qqqq check if it is redactable. more of these. log when it isn't.
 			if (target.Record is not IPrepareLogRecord<TStreamId> targetPrepare) {
 				return false;

@@ -51,6 +51,9 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			IScavengeStateForCleaner state,
 			CancellationToken cancellationToken) {
 
+			state.DeleteRedactionRequests();
+			cancellationToken.ThrowIfCancellationRequested();
+
 			// constant time operation
 			if (state.AllChunksExecuted()) {
 				// Now we know we have successfully executed every chunk with weight.

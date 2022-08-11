@@ -108,7 +108,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		float SumChunkWeights(int startLogicalChunkNumber, int endLogicalChunkNumber);
 		bool TryGetChunkExecutionInfo(TStreamId streamId, out ChunkExecutionInfo info);
 		bool TryGetMetastreamData(TStreamId streamId, out MetastreamData metastreamData);
-		IEnumerable<long> GetRedactionRequests(long startPosition, long endPositionExclusive); //qq end excl?
+		IEnumerable<long> GetRedactionTargets(long startPosition, long endPositionExclusive);
 	}
 
 	public interface IScavengeStateForChunkMerger : IScavengeStateCommon {
@@ -126,6 +126,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		bool AllChunksExecuted();
 		void DeleteMetastreamData();
 		void DeleteOriginalStreamData(bool deleteArchived);
+		void DeleteRedactionRequests();
 	}
 
 	// this represents access to the actual state storage. these are grouped together into one inteface

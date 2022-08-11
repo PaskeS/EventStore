@@ -307,6 +307,10 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		public void DeleteMetastreamData() {
 			_metastreamDatas.DeleteAll();
 		}
+
+		public void DeleteRedactionRequests() {
+			_redactionRequests.DeleteAll();
+		}
 	}
 
 
@@ -359,9 +363,8 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 		public bool TryGetMetastreamData(TStreamId streamId, out MetastreamData data) =>
 			_metastreamDatas.TryGetValue(streamId, out data);
 
-		public IEnumerable<long> GetRedactionRequests(long startPosition, long endPositionExclusive) {
-			throw new NotImplementedException();
-		}
+		public IEnumerable<long> GetRedactionTargets(long startPosition, long endPositionExclusive) =>
+			_redactionRequests.GetRedactionTargets(startPosition, endPositionExclusive);
 
 		public void Dispose() {
 			_onDispose();

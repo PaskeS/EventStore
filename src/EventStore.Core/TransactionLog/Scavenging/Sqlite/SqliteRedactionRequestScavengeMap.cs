@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 
 namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
-	//qqqqqqqqq this is just a copy of chunkweight scavenge map at the moment
-	// update for Redactions
 	public class SqliteRedactionRequestScavengeMap : SqliteScavengeMap<long, Unit>, IRedactionRequestScavengeMap {
+
 		private RegisterRedactionRequestCommand _registerRedactionRequest;
 		private GetRedactionTargetsCommand _getRedactionTargets;
+		private DeleteAllCommand _deleteAll;
 
 		private const string MapName = "RedactionRequests";
 
@@ -18,6 +18,7 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 
 			_registerRedactionRequest = new RegisterRedactionRequestCommand(TableName, sqlite);
 			_getRedactionTargets = new GetRedactionTargetsCommand(TableName, sqlite);
+			_deleteAll = new DeleteAllCommand(TableName, sqlite);
 		}
 
 		public void RegisterRedactionRequest(long targetPosition) {
@@ -26,6 +27,10 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 
 		public IEnumerable<long> GetRedactionTargets(long startPosition, long endPositionExclusive) =>
 			_getRedactionTargets.Execute(startPosition, endPositionExclusive);
+
+		public void DeleteAll() {
+			_deleteAll.Execute();
+		}
 
 		private class RegisterRedactionRequestCommand {
 			private readonly SqliteBackend _sqlite;
@@ -36,7 +41,7 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 				var sql = $@"
 					INSERT INTO {tableName} (key)
 					VALUES ($key)
-					ON CONFLICT(key) DO UPDATE SET value=value+$value"; //qq on conflict.. ignore? at least while we have no value?
+					ON CONFLICT(key) DO UPDATE SET value=value+$value"; //qq at the moment we have no $value. on conflict.. ignore? at least while we have no value?
 				
 				_cmd = sqlite.CreateCommand();
 				_cmd.CommandText = sql;
@@ -78,6 +83,25 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 				_startParam.Value = startPosition;
 				_endParam.Value = endPositionExclusive;
 				return _sqlite.ExecuteReader(_cmd, static reader => reader.GetFieldValue<long>(0));
+			}
+		}
+
+		private class DeleteAllCommand {
+			private readonly SqliteBackend _sqlite;
+			private readonly SqliteCommand _deleteCmd;
+
+			public DeleteAllCommand(string tableName, SqliteBackend sqlite) {
+				// sqlite treats this efficiently (as a truncate) https://www.sqlite.org/lang_delete.html
+				var deleteSql = $"DELETE FROM {tableName}";
+				_deleteCmd = sqlite.CreateCommand();
+				_deleteCmd.CommandText = deleteSql;
+				_deleteCmd.Prepare();
+
+				_sqlite = sqlite;
+			}
+
+			public void Execute() {
+				_sqlite.ExecuteNonQuery(_deleteCmd);
 			}
 		}
 	}
