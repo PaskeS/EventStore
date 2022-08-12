@@ -118,6 +118,7 @@ message ReadResp {
 			map<string, string> metadata = 6;
 			bytes custom_metadata = 7;
 			bytes data = 8;
+			bool redacted = 9;
 		}
 	}
 	message SubscriptionConfirmation {
