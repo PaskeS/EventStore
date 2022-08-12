@@ -15,6 +15,7 @@ namespace EventStore.Core.TransactionLog.Scavenging.Sqlite {
 		private readonly Dictionary<Type, string> _sqliteTypeMap = new Dictionary<Type, string>() {
 			{typeof(int), nameof(SqliteType.Integer)},
 			{typeof(float), nameof(SqliteType.Real)},
+			{typeof(long), nameof(SqliteType.Integer)},
 			{typeof(ulong), nameof(SqliteType.Integer)},
 			{typeof(string), nameof(SqliteType.Text)},
 		};
