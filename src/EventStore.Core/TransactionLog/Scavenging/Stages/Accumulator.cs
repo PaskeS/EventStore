@@ -385,21 +385,41 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 			var payload = record.RedactionRequestPayload;
 			if (payload is null) {
-				//qq the payload didn't parse, log an error or something for the user
+				LogRedactionFailure(record, $"The request was not valid json.");
+				return;
 			}
 
-			//qq presumably the targetevent number must be less than the request event number
+			if (payload.TargetEventNumber is null) {
+				LogRedactionFailure(record, $"TargetEventNumber was not provided");
+				return;
+			}
+
+			var targetEventNumber = payload.TargetEventNumber.Value;
+
+			if (record.EventNumber <= targetEventNumber) {
+				LogRedactionFailure(record, $"Target event {targetEventNumber} must be before the request but is not.");
+				return;
+			}
 
 			//qq if there are duplicates, does this get them both
 			var eventInfos = _index.ReadEventInfoForward(
 				handle: state.GetStreamHandle(record.StreamId),
-				fromEventNumber: payload.TargetEventNumber,
+				fromEventNumber: targetEventNumber,
 				maxCount: 1,
 				scavengePoint: scavengePoint).EventInfos;
 
 			foreach (var eventInfo in eventInfos) {
 				state.RegisterRedactionRequest(eventInfo.LogPosition);
 			}
+		}
+
+		private static void LogRedactionFailure(
+			RecordForAccumulator<TStreamId>.RedactionRequestRecord request,
+			string error) {
+
+			Log.Warning(
+				"SCAVENGING: Could not process redaction request at {stream}:{eventNumber}: {error}",
+				request.StreamId, request.EventNumber, error);
 		}
 
 		private void CheckMetadataOrdering(

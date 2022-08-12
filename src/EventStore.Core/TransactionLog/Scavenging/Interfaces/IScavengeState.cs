@@ -68,7 +68,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 		StreamHandle<TStreamId> GetStreamHandle(TStreamId streamId);
 
-		void RegisterRedactionRequest(long targetPosition); //qq and other args i expect
+		void RegisterRedactionRequest(long targetPosition);
 	}
 
 	public interface IScavengeStateForCalculatorReadOnly<TStreamId> {

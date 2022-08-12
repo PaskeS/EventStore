@@ -74,7 +74,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 				RedactionRequestPayload = redactionRequest;
 			}
 
-			public long EventNumber { get; private set; } //qq need?
+			public long EventNumber { get; private set; }
 			public RedactionRequestPayload RedactionRequestPayload { get; private set; }
 		}
 	}

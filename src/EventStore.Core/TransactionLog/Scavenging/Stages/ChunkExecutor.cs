@@ -1,33 +1,14 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading;
-using EventStore.Core.DataStructures.ProbabilisticFilter;
 using EventStore.Core.Exceptions;
 using EventStore.Core.LogAbstraction;
 using EventStore.Core.TransactionLog.Chunks;
-using EventStore.Core.TransactionLog.LogRecords;
 using Serilog;
 
 namespace EventStore.Core.TransactionLog.Scavenging {
-	//qq name, location
-	public sealed class RedactionHelper : IDisposable {
-		private readonly IEnumerator<long> _targetEnumeration;
-
-		public RedactionHelper(IEnumerable<long> redactionTargets) {
-			_targetEnumeration = redactionTargets.GetEnumerator();
-			GotCurrent = _targetEnumeration.MoveNext();
-		}
-
-		public bool GotCurrent { get; private set; }
-
-		public void Dispose() {
-			_targetEnumeration?.Dispose();
-		}
-	}
-
 	public class ChunkExecutor {
 		protected static readonly ILogger Log = Serilog.Log.ForContext<ChunkExecutor>();
 	}
@@ -123,7 +104,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 
 						//qqq only need to get the redactionRequests and consider them if it is a redaction-enabled scavenge.
 						//qq make sure everything we do with redactionRequests is ok with the concurrency.
-						using var redactionTargets = new RedactionHelper(
+						using var redactionTargets = new RedactionTargetChecker(
 							concurrentState.GetRedactionTargets(
 								startPosition: physicalChunk.ChunkStartPosition,
 								endPositionExclusive: physicalChunk.ChunkEndPosition));
@@ -131,7 +112,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 						var executeChunk =
 							physicalWeight > scavengePoint.Threshold ||
 							_unsafeIgnoreHardDeletes ||
-							redactionTargets.GotCurrent;
+							redactionTargets.AnyTargets;
 
 						if (executeChunk) {
 							ExecutePhysicalChunk(
@@ -210,7 +191,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 			IScavengeStateForChunkExecutorWorker<TStreamId> state,
 			ITFChunkScavengerLog scavengerLogger,
 			IChunkReaderForExecutor<TStreamId, TRecord> sourceChunk,
-			RedactionHelper redactionTargets,
+			RedactionTargetChecker redactionTargets,
 			Stopwatch sw,
 			CancellationToken cancellationToken) {
 
@@ -262,7 +243,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 						} else {
 							// keep (maybe redacted)
 
-							if (_redactor.TryRedact(redactionTargets, prepareRecord)) {
+							if (_redactor.RedactIfNecessary(redactionTargets, prepareRecord)) {
 								redactedCount++;
 							} else {
 								keptCount++;
@@ -440,89 +421,6 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 						maxAge: null);
 				}
 			}
-		}
-	}
-
-	public interface IRedactor<TStreamId, TRecord> {
-		bool TryRedact(
-			RedactionHelper redactionTargets,
-			RecordForExecutor<TStreamId, TRecord>.Prepare target);
-	}
-
-	//qq we can see if v2/v3 turn out to be different apart from the factories.
-	public class Redactor<TStreamId> : IRedactor<TStreamId, ILogRecord> {
-		private readonly IRecordFactory<TStreamId> _recordFactory;
-		private byte[] _ones;
-
-		public Redactor(IRecordFactory<TStreamId> recordFactory) {
-			_recordFactory = recordFactory;
-			CreatesOnes(256 * 1024);
-		}
-
-		private void CreatesOnes(long length) {
-			// we will create a buffer filled with 1s that is at least as long as length.
-			// round up the length to the nearest 8 bytes so we can fill it easily.
-			var adjustedLength = length.RoundUpToMultipleOf(sizeof(ulong));
-			_ones = new byte[adjustedLength];
-			var ulongs = MemoryMarshal.Cast<byte, ulong>(_ones.AsSpan());
-			for (var i = 0; i < ulongs.Length; i++) {
-				ulongs[i] = ulong.MaxValue;
-			}
-		}
-
-		private ReadOnlyMemory<byte> GetOnes(int length) {
-			if (_ones.Length < length)
-				CreatesOnes(length);
-			return _ones.AsMemory()[..length];
-		}
-
-		//qqq rename now that this also deals with checking whether redaction is even necessary.
-		public bool TryRedact(
-			RedactionHelper redactionTargets,
-			RecordForExecutor<TStreamId, ILogRecord>.Prepare target) {
-
-			var isTargetedForRedaction = false;
-
-			if (!isTargetedForRedaction)
-				return false;
-
-			//qqqq check if it is redactable. more of these. log when it isn't.
-			if (target.Record is not IPrepareLogRecord<TStreamId> targetPrepare) {
-				return false;
-			}
-
-			if (!targetPrepare.Flags.HasAnyOf(PrepareFlags.Data)) {
-				return false;
-			}
-
-			var redactedData = GetOnes(targetPrepare.Data.Length);
-
-			var redactedRecord = _recordFactory.CreatePrepare(
-				logPosition: targetPrepare.LogPosition,
-				correlationId: targetPrepare.CorrelationId,
-				eventId: targetPrepare.EventId,
-				transactionPosition: targetPrepare.TransactionPosition,
-				transactionOffset: targetPrepare.TransactionOffset,
-				eventStreamId: targetPrepare.EventStreamId,
-				expectedVersion: targetPrepare.ExpectedVersion,
-				timeStamp: targetPrepare.TimeStamp,
-				flags: targetPrepare.Flags | PrepareFlags.IsRedacted, //qq remove IsJson?
-				eventType: targetPrepare.EventType,
-				data: redactedData,
-				metadata: targetPrepare.Metadata);
-
-			target.SetRecord(
-				length: target.Length,
-				logPosition: target.LogPosition,
-				record: redactedRecord,
-				timeStamp: target.TimeStamp,
-				streamId: target.StreamId,
-				isSelfCommitted: target.IsSelfCommitted,
-				isTombstone: target.IsTombstone,
-				isTransactionBegin: target.IsTransactionBegin,
-				eventNumber: target.EventNumber);
-
-			return true;
 		}
 	}
 }
