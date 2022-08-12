@@ -18,7 +18,7 @@ namespace EventStore.Core.Services.Transport.Grpc {
 
 		private static ReadResp.Types.ReadEvent.Types.RecordedEvent ConvertToRecordedEvent(
 			ReadReq.Types.Options.Types.UUIDOption uuidOption, EventRecord e, long? commitPosition,
-			long? preparePosition) {
+			long? preparePosition, bool redacted) {
 			if (e == null) return null;
 			var position = Position.FromInt64(commitPosition ?? -1, preparePosition ?? -1);
 			return new ReadResp.Types.ReadEvent.Types.RecordedEvent {
@@ -40,7 +40,8 @@ namespace EventStore.Core.Services.Transport.Grpc {
 						: Constants.Metadata.ContentTypes.ApplicationOctetStream
 				},
 				Data = ByteString.CopyFrom(e.Data.Span),
-				CustomMetadata = ByteString.CopyFrom(e.Metadata.Span)
+				CustomMetadata = ByteString.CopyFrom(e.Metadata.Span),
+				Redacted = redacted
 			};
 		}
 
@@ -48,9 +49,9 @@ namespace EventStore.Core.Services.Transport.Grpc {
 			ResolvedEvent e) {
 			var readEvent = new ReadResp.Types.ReadEvent {
 				Link = ConvertToRecordedEvent(uuidOption, e.Link, e.LinkPosition?.CommitPosition,
-					e.LinkPosition?.PreparePosition),
+					e.LinkPosition?.PreparePosition, e.LinkRedacted),
 				Event = ConvertToRecordedEvent(uuidOption, e.Event, e.EventPosition?.CommitPosition,
-					e.EventPosition?.PreparePosition),
+					e.EventPosition?.PreparePosition, e.EventRedacted),
 			};
 			if (e.OriginalPosition.HasValue) {
 				var position = Position.FromInt64(

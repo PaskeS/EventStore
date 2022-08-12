@@ -118,7 +118,7 @@ namespace EventStore.Core.Services.Transport.Grpc {
 			}
 
 			ReadResp.Types.ReadEvent.Types.RecordedEvent ConvertToRecordedEvent(EventRecord e, long? commitPosition,
-				long? preparePosition) {
+				long? preparePosition, bool redacted) {
 				if (e == null) return null;
 				var position = Position.FromInt64(commitPosition ?? -1, preparePosition ?? -1);
 				return new ReadResp.Types.ReadEvent.Types.RecordedEvent {
@@ -140,7 +140,8 @@ namespace EventStore.Core.Services.Transport.Grpc {
 							: Constants.Metadata.ContentTypes.ApplicationOctetStream
 					},
 					Data = ByteString.CopyFrom(e.Data.Span),
-					CustomMetadata = ByteString.CopyFrom(e.Metadata.Span)
+					CustomMetadata = ByteString.CopyFrom(e.Metadata.Span),
+					Redacted = redacted
 				};
 			}
 
@@ -149,10 +150,12 @@ namespace EventStore.Core.Services.Transport.Grpc {
 				var readEvent = new ReadResp.Types.ReadEvent {
 					Link = ConvertToRecordedEvent(e.Link,
 						e.OriginalPosition?.CommitPosition,
-						e.OriginalPosition?.PreparePosition),
+						e.OriginalPosition?.PreparePosition,
+						e.LinkRedacted),
 					Event = ConvertToRecordedEvent(e.Event,
 						e.OriginalPosition?.CommitPosition,
-						e.OriginalPosition?.PreparePosition),
+						e.OriginalPosition?.PreparePosition,
+						e.EventRedacted),
 					RetryCount = retryCount
 				};
 				if (e.OriginalPosition.HasValue) {

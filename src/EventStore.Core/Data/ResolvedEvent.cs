@@ -1,3 +1,5 @@
+using EventStore.Core.TransactionLog.LogRecords;
+
 namespace EventStore.Core.Data {
 	public struct ResolvedEvent {
 		public static readonly ResolvedEvent[] EmptyArray = new ResolvedEvent[0];
@@ -18,7 +20,11 @@ namespace EventStore.Core.Data {
 
 		public TFPos? EventPosition => CalculatePosition(Event);
 
+		public bool EventRedacted => Event != null && (Event.Flags & PrepareFlags.IsRedacted) != 0;
+
 		public TFPos? LinkPosition => CalculatePosition(Link);
+
+		public bool LinkRedacted => Link != null && (Link.Flags & PrepareFlags.IsRedacted) != 0;
 
 		public readonly ReadEventResult ResolveResult;
 
