@@ -506,7 +506,7 @@ namespace EventStore.Core.TransactionLog.Scavenging {
 				eventStreamId: targetPrepare.EventStreamId,
 				expectedVersion: targetPrepare.ExpectedVersion,
 				timeStamp: targetPrepare.TimeStamp,
-				flags: targetPrepare.Flags | PrepareFlags.IsReadacted, //qq remove IsJson?
+				flags: targetPrepare.Flags | PrepareFlags.IsRedacted, //qq remove IsJson?
 				eventType: targetPrepare.EventType,
 				data: redactedData,
 				metadata: targetPrepare.Metadata);
